@@ -1,4 +1,10 @@
+import datetime
+from datetime import timedelta
+
+from sqlalchemy.testing import mock
+
 from users.models import User, Email
+from users.tasks import refresh_users
 
 
 def test_index(test_client):
@@ -22,7 +28,9 @@ def test_create_user(test_client):
     assert 'emails' in response.json
     assert len(response.json['emails']) == 1
     assert response.json['emails'][0].pop('id')
-    assert response.json == data
+    resp_data = response.json
+    resp_data.pop('created_at')
+    assert resp_data == data
 
 
 def test_update_user(user_factory, db, test_client):
@@ -82,8 +90,9 @@ def test_search_user_by_username(user_factory, db, test_client):
     response = test_client.get(f'/user/search', query_string={'username': 'Spiderman'})
 
     assert response.status_code == 200
-
-    assert response.json == expected_data
+    data = response.json
+    data.pop('created_at')
+    assert data == expected_data
 
 
 def test_search_user_by_email(user_factory, db, test_client):
@@ -108,8 +117,9 @@ def test_search_user_by_email(user_factory, db, test_client):
     response = test_client.get(f'/user/search', query_string={'email': 'email_1'})
 
     assert response.status_code == 200
-
-    assert response.json == expected_data
+    data = response.json
+    data.pop('created_at')
+    assert data == expected_data
 
 
 def test_update_user_add_emails(user_factory, db, test_client):
@@ -160,3 +170,22 @@ def test_update_user_update_username(user_factory, db, test_client):
 
     user = User.query.all()[0]
     assert user.username == 'Superhero'
+
+
+def test_task_refresh_users(user_factory, app, db):
+    now = datetime.datetime.utcnow()
+    now_minus_2_min = now - timedelta(minutes=2)
+
+    user1 = user_factory(username='username1', created_at=now)
+    user2 = user_factory(username='username2', created_at=now_minus_2_min)
+    db.session.add(user1)
+    db.session.add(user2)
+    db.session.commit()
+
+    with mock.patch('users.tasks.db', db):
+        refresh_users.apply()
+
+    users = list(User.query.all())
+
+    assert len(users) == 3
+    assert 'username1' in [u.username for u in users]

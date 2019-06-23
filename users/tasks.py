@@ -48,4 +48,3 @@ def refresh_users():
         db.session.add(user)
 
     db.session.commit()
-    print('End task')
